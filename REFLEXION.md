@@ -74,3 +74,89 @@ Los assets de `/_next/static/` llevan hash de contenido: si cambian, cambia la U
 
 **7. Si la app necesitara SSR**
 Habría que usar App Hosting (Cloud Run), que exige plan Blaze con facturación. La arquitectura pasa de archivos estáticos en CDN a un servidor. En la CSP se podría usar nonce por request en lugar de `'unsafe-inline'`.
+
+
+
+---
+
+# Clase 2: SQL Connect, modelo relacional y autorización
+
+## Auditoría (`npm run atacar`)
+
+### Antes de corregir
+(salida abajo)
+
+### Después de corregir
+(salida abajo)
+
+**Corrección de L4:** `ListAlumnos` pasó de `PUBLIC` a `NO_ACCESS`. Devolvía id, nombre y email de todos los alumnos sin login. Son datos personales, y el "panel de admin" no justifica exponerlos a internet.
+
+## Preguntas
+
+**1. ¿Por qué ninguna operación recibe el id del alumno? ¿Qué es IDOR y cómo lo evita `auth.uid`?**
+Si el id viniera del cliente, cualquiera podría cambiarlo y leer o modificar datos de otro usuario. Eso es IDOR (referencia directa a un objeto sin verificar que pertenezca a quien llama). Con `auth.uid` el servidor toma el id del token firmado, que el cliente no puede falsificar, así que cada operación solo alcanza los datos del usuario que llama.
+
+**2. ¿Qué criterio usaste para `PUBLIC` y `NO_ACCESS`? ¿Cómo haría el panel de admin?**
+`PUBLIC` solo para información pública por naturaleza (el catálogo). `USER` para datos del propio usuario. `NO_ACCESS` para datos personales que no deben salir del servidor sin control, como `ListAlumnos`. `USER` no servía ahí: cualquier alumno vería los emails de los demás. El panel de admin correría en un backend con el Admin SDK (por ejemplo Cloud Functions), verificando un rol de administrador con custom claims, y devolviendo solo los campos necesarios.
+
+**3. ¿Qué ventaja tiene la clave primaria compuesta en `Matricula`?**
+La regla "un alumno no se inscribe dos veces al mismo curso" vive en la base de datos y se cumple sin importar quién escriba (la app, un script de un atacante o una operación futura mal escrita). Una validación en el cliente se saltea llamando a la API directamente. Con un UUID propio, nada impediría filas duplicadas salvo una restricción única aparte. Además permite que `Inscribirme` sea idempotente con `upsert`.
+
+**4. La config de Firebase es pública. ¿Por qué no compromete la base? ¿Qué falta?**
+La `apiKey` solo identifica el proyecto, no da permisos. La protección está en `@auth` de cada operación y en el token de Firebase Auth. Lo que falta es una capa contra scripts que usen esa config sin ser nuestra app: **App Check**, que verifica que las llamadas vienen de una app legítima. También se podrían limitar cuotas.
+
+**5. SQL Connect vs. API propia (Express + pg)**
+Gana: sin servidor que mantener, SQL inyección cerrada por diseño (solo operaciones con nombre), autorización declarada junto a cada operación, SDK generado e integración con Auth. Pierde: control fino de la lógica, portabilidad (depende de Firebase/Google Cloud), flexibilidad para consultas complejas, y la prueba sin costo vence a los 90 días (después exige plan Blaze).
+
+**6. ¿Por qué no alcanzó la CSP de la clase 1 y por qué dominios exactos en `connect-src`?**
+La CSP no definía `connect-src`, así que caía en `default-src 'self'` y bloqueaba toda conexión a otros orígenes. La consola mostró que la app llamaba a `firebasedataconnect.googleapis.com`; para Auth se agregaron `identitytoolkit.googleapis.com` y `securetoken.googleapis.com`. Se listan orígenes exactos porque un comodín como `https://*.googleapis.com` permitiría conectar con cualquier API de Google; si un XSS inyectara código, tendría muchos más destinos para exfiltrar datos.
+
+## Deploy (L7)
+- Servicio `catalogo`, conector `cursos`, región `us-east4`, instancia `catalogo-fdc`.
+- El CLI avisó que omitía la migración de esquema porque Cloud SQL seguía creándose; mientras tanto usa una base temporal.
+- [Si hiciste `dataconnect:sql:diff`, comentá acá el SQL que mostró.]
+
+## Salida de atacar ANTES
+
+```
+npm notice run practica-firebase-cicd@1.0.0 atacar
+npm notice run node scripts/atacar.mjs
+
+Auditoría de SQL Connect · proyecto practica-cicd · emuladores locales
+
+[32m✔[0m ListCursos responde sin login (7 cursos) — público por diseño
+[31m✘[0m ListAlumnos devuelve datos personales SIN login
+[90m    Ejemplo filtrado: {"email":"ana@ejemplo.test","id":"seed-uid-ana","nombre":"Ana Ficticia"}[0m
+[2026-11-07T19:57:08.884Z]  @firebase/data-connect: DataConnect (13.1.0): Error while performing request: {"code":16,"message":"unauthenticated: this operation requires a signed-in user","details":[{"@type":"type.googleapis.com/google.firebase.dataconnect.http.GraphqlError","message":"@auth rejected the request","locations":[],"path":null,"extensions":{"file":"","code":"UNAUTHENTICATED","debugDetails":"@auth(level: USER) requires a signed-in user","resource":"","warningLevel":"WARNING_LEVEL_UNKNOWN","workarounds":[]}}]}
+[32m✔[0m Inscribirme rechazada sin login
+[90m    unauthenticated: this operation requires a signed-in user[0m
+[32m✔[0m Inscribirme es idempotente (repetir no falla)
+[32m✔[0m MisInscripciones solo devuelve lo del usuario que llama
+[32m✔[0m B no puede dar de baja a A
+[31m
+❌ 1 vulnerabilidad(es) · 0 pendiente(s)
+[0m
+```
+
+## Salida de atacar DESPUES
+
+```
+npm notice run practica-firebase-cicd@1.0.0 atacar
+npm notice run node scripts/atacar.mjs
+
+Auditoría de SQL Connect · proyecto practica-cicd · emuladores locales
+
+[32m✔[0m ListCursos responde sin login (7 cursos) — público por diseño
+[2026-11-07T20:00:45.631Z]  @firebase/data-connect: DataConnect (13.1.0): Error while performing request: {"code":7,"message":"unauthorized: you are not authorized to perform this operation","details":[{"@type":"type.googleapis.com/google.firebase.dataconnect.http.GraphqlError","message":"@auth rejected the request","locations":[],"path":null,"extensions":{"file":"","code":"PERMISSION_DENIED","debugDetails":"@auth(level: NO_ACCESS) always reject non-admin requests","resource":"","warningLevel":"WARNING_LEVEL_UNKNOWN","workarounds":[]}}]}
+[32m✔[0m ListAlumnos rechazada para un cliente
+[90m    unauthorized: you are not authorized to perform this operation[0m
+[2026-11-07T20:00:45.644Z]  @firebase/data-connect: DataConnect (13.1.0): Error while performing request: {"code":16,"message":"unauthenticated: this operation requires a signed-in user","details":[{"@type":"type.googleapis.com/google.firebase.dataconnect.http.GraphqlError","message":"@auth rejected the request","locations":[],"path":null,"extensions":{"file":"","code":"UNAUTHENTICATED","debugDetails":"@auth(level: USER) requires a signed-in user","resource":"","warningLevel":"WARNING_LEVEL_UNKNOWN","workarounds":[]}}]}
+[32m✔[0m Inscribirme rechazada sin login
+[90m    unauthenticated: this operation requires a signed-in user[0m
+[32m✔[0m Inscribirme es idempotente (repetir no falla)
+[32m✔[0m MisInscripciones solo devuelve lo del usuario que llama
+[32m✔[0m B no puede dar de baja a A
+[32m
+✅ Todos los controles pasaron
+[0m
+```
