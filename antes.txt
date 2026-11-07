@@ -1,0 +1,16 @@
+
+▶ HTML: https://practica-cicd.web.app/
+[90m  status 200[0m
+  [31m✘[0m content-security-policy [31m(falta)[0m
+  [32m✔[0m strict-transport-security: [90mmax-age=31556926; includeSubDomains; preload[0m
+  [31m✘[0m x-content-type-options [31m(falta)[0m
+  [31m✘[0m x-frame-options [31m(falta)[0m
+  [31m✘[0m referrer-policy [31m(falta)[0m
+  [31m✘[0m permissions-policy [31m(falta)[0m
+  · cache-control: max-age=3600
+
+▶ Asset estático: /_next/static/chunks/1x6obpmlu1_c2.js
+  [31m✘[0m cache-control: max-age=3600
+[31m
+❌ 6 control(es) pendiente(s).
+[0m
