@@ -6,6 +6,7 @@ import type { Curso } from "@/lib/cursos";
 import { inscribirme, listarCursos, mensajeDeError } from "@/lib/sqlconnect";
 import { useUsuario } from "@/lib/useUsuario";
 import FiltroCursos from "./FiltroCursos";
+import ResenasCurso from "./ResenasCurso";
 
 type Estado = { tipo: "cargando" } | { tipo: "error"; mensaje: string } | { tipo: "ok"; cursos: Curso[] };
 
@@ -53,15 +54,21 @@ export default function CatalogoSql() {
       )}
       <FiltroCursos
         cursos={estado.cursos}
-        accion={(c) =>
-          usuario ? (
-            <button type="button" className="button button--small" disabled={enCurso === c.id} onClick={() => onInscribirme(c)}>
-              {enCurso === c.id ? "Inscribiendo…" : "Inscribirme"}
-            </button>
-          ) : (
-            <small className="hint">Ingresá para inscribirte</small>
-          )
-        }
+        accion={(c) => (
+          <>
+            {usuario ? (
+              <button type="button" className="button button--small" disabled={enCurso === c.id} onClick={() => onInscribirme(c)}>
+                {enCurso === c.id ? "Inscribiendo…" : "Inscribirme"}
+              </button>
+            ) : (
+              <small className="hint">Ingresá para inscribirte</small>
+            )}
+            <details>
+              <summary>Ver reseñas</summary>
+              <ResenasCurso cursoId={c.id} uid={usuario?.uid ?? null} />
+            </details>
+          </>
+        )} 
       />
     </>
   );
